@@ -1,7 +1,3 @@
-/**
- * TEXA Calls Screen
- * Premium call history with golden accents.
- */
 import { useMemo, useState } from "react";
 import {
   FlatList,
