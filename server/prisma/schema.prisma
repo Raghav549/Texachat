@@ -1,0 +1,199 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── User ──────────────────────────────────────────────────────
+model User {
+  id            String    @id @default(uuid())
+  phone         String    @unique
+  username      String    @unique
+  displayName   String
+  avatarUrl     String?
+  bio           String    @default("")
+  verified      Boolean   @default(false)
+  online        Boolean   @default(false)
+  lastSeen      DateTime  @default(now())
+
+  // Security
+  twoFactorEnabled Boolean @default(false)
+  biometricEnabled Boolean @default(false)
+  hideOnline       Boolean @default(false)
+  hideReadReceipts Boolean @default(false)
+  screenshotProtection Boolean @default(true)
+
+  // Encryption keys (stored encrypted in DB)
+  identityKeyPublic  String // Ed25519 public key (base64)
+  identityKeyPrivate String // Ed25519 private key (base64, AES-256 encrypted)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions       Session[]
+  devices        Device[]
+  sentMessages   Message[]       @relation("Sender")
+  chatMembers    ChatMember[]
+  calls          Call[]          @relation("CallParticipants")
+  statuses       Status[]
+  keyBundles     KeyBundle[]
+}
+
+// ── Session ───────────────────────────────────────────────────
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  token        String   @unique
+  refreshToken String   @unique
+  deviceInfo   String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ── Device ────────────────────────────────────────────────────
+model Device {
+  id          String   @id @default(uuid())
+  userId      String
+  deviceName  String
+  deviceId    String   @unique
+  lastActive  DateTime @default(now())
+  trusted     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ── KeyBundle (Pre-Key Bundles for Double Ratchet) ────────────
+model KeyBundle {
+  id              String   @id @default(uuid())
+  userId          String
+  preKeyPublic    String   // Base64 encoded X25519 public key
+  signedPreKeyPublic  String
+  signedPreKeySignature String
+  oneTimePreKey   Boolean  @default(false)
+  used            Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, used])
+}
+
+// ── Chat ──────────────────────────────────────────────────────
+model Chat {
+  id         String    @id @default(uuid())
+  type       String    // private, group, channel, secret
+  name       String?
+  avatarUrl  String?
+  lastMessageAt DateTime?
+  pinned     Boolean   @default(false)
+  muted      Boolean   @default(false)
+  archived   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  members    ChatMember[]
+  messages   Message[]
+
+  @@index([updatedAt])
+}
+
+// ── ChatMember ────────────────────────────────────────────────
+model ChatMember {
+  id           String   @id @default(uuid())
+  chatId       String
+  userId       String
+  role         String   @default("member") // owner, admin, member
+  joinedAt     DateTime @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([chatId, userId])
+  @@index([chatId])
+  @@index([userId])
+}
+
+// ── Message ───────────────────────────────────────────────────
+model Message {
+  id            String   @id @default(uuid())
+  chatId        String
+  senderId      String
+  type          String   // text, image, video, audio, document, voice, sticker
+  content       String   // AES-256-GCM encrypted ciphertext (base64)
+  mediaUrl      String?
+  mediaEncryptedKey String? // Encrypted media key for E2E media
+
+  // E2E metadata (non-sensitive)
+  messageNonce  String?  // Nonce for message decryption
+  replyToId     String?  // Thread support
+
+  edited        Boolean  @default(false)
+  deleted       Boolean  @default(false)
+  disappearingAt DateTime? // Self-destruct timer
+
+  // Delivery tracking
+  deliveredTo   String[] @default([])
+  readBy        String[] @default([])
+
+  createdAt     DateTime @default(now())
+
+  chat       Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender     User     @relation("Sender", fields: [senderId], references: [id])
+
+  @@index([chatId, createdAt(sort: Desc)])
+  @@index([senderId])
+}
+
+// ── Call ──────────────────────────────────────────────────────
+model Call {
+  id           String   @id @default(uuid())
+  type         String   // voice, video
+  callerId     String
+  participants String[] // User IDs
+  status       String   // ringing, ongoing, ended, missed
+  direction    String   // incoming, outgoing
+  duration     Int      @default(0) // seconds
+  encrypted    Boolean  @default(true)
+
+  // WebRTC signaling data (encrypted)
+  sdpOffer     String?
+  sdpAnswer    String?
+  iceCandidates String[]
+
+  createdAt    DateTime @default(now())
+
+  caller User @relation(fields: [callerId], references: [id])
+
+  @@index([callerId])
+  @@index([createdAt(sort: Desc)])
+}
+
+// ── Status / Story ────────────────────────────────────────────
+model Status {
+  id              String   @id @default(uuid())
+  userId          String
+  type            String   // text, image, video
+  content         String   // Encrypted content
+  mediaUrl        String?
+  backgroundColor String?
+  views           String[] @default([])
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+}
