@@ -1,7 +1,3 @@
-/**
- * TEXA Tab Navigator
- * Premium bottom tab bar with golden accents.
- */
 import { Tabs } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { MessageCircle, Phone, CircleDot, Settings } from "lucide-react-native";
